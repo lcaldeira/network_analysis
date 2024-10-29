@@ -24,7 +24,7 @@ class Distances():
 		return tuple(map(tuple, min_dist))
 	
 	@classmethod
-	def shortest_dist_distrib(cls, G, min_dist:tuple) -> list:
+	def shortest_dist_distrib(cls, G, min_dist:tuple=None) -> list:
 		if min_dist is None:	min_dist = cls.shortest_dist(G)
 		counts = {}
 		for line in min_dist:
