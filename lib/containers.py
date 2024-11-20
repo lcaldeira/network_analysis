@@ -6,7 +6,7 @@ class GraphAPI():
 	def __init__(self, graph): self.data = graph
 	def __len__(self): return self.count_nodes() + self.count_edges()
 	
-	def _isnx(self): return isinstance(self.data, nx.Graph)
+	def _isnx(self): return isinstance(self.data, tuple([nx.Graph, nx.DiGraph]))
 	def _isig(self): return isinstance(self.data, ig.Graph)
 	def _isint(self, var): return isinstance(var, int)
 	def _islst(self, var): return isinstance(var, list)
@@ -20,10 +20,23 @@ class GraphAPI():
 	def to(self, engine):
 		if self._isig() and engine in ['nx', 'networkx']:
 			A = self.data.get_edgelist()
-			return GraphAPI( nx.DiGraph(A) if self.data.is_directed() else nx.Graph(A) )
+			return GraphAPI( nx.DiGraph(A) if self.is_directed() else nx.Graph(A) )
 		elif self._isnx() and engine in ['ig', 'igraph']:
-			return GraphAPI( ig.Graph.TupleList(self.data.edges(), directed=self.data.is_directed()) )
+			return GraphAPI( ig.Graph.TupleList(self.data.edges(), directed=self.is_directed()) )
 		return self.copy()
+	
+	def is_directed(self):
+		if   self._isnx(): return isinstance(self.data, nx.DiGraph)
+		elif self._isig(): return self.data.is_directed()
+		else			 : return None
+	
+	def to_directed(self):
+		if self.is_directed(): return self
+		else                 : return self.data.to_directed()
+	
+	def to_undirected(self):
+		if not self.is_directed(): return self
+		else                     : return self.data.to_undirected()
 	
 	def nodes(self):
 		if   self._isnx(): return list(self.data.nodes)

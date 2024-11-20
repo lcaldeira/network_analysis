@@ -185,7 +185,8 @@ class ClusteringAndCycles():
 	@classmethod
 	def qt_triplets(cls, G, deg:list=None) -> list:
 		if deg is None:			deg = Connectivity.vertex_degree(G)
-		return [ k*(k-1)/2 for k in deg ]
+		factor = 1 if G.is_directed() else 2
+		return [ k*(k-1)/factor for k in deg ]
 	
 	@classmethod
 	def vertex_clustering_coeff(cls, G, qt_tri:list=None) -> list:
@@ -276,31 +277,38 @@ class Centrality():
 		return NotImplemented
 	
 	@classmethod
-	def betweenness_centrality(cls, G) -> list:
+	def betweenness(cls, G) -> list:
 		if G._isnx():
 			G = G.to('igraph')
 		return G.data.betweenness()
 	
 	@classmethod
-	def avg_betweenness_centrality(cls, G, bc:list=None) -> float:
-		if bc is None:			bc = cls.betweenness_centrality(G)
+	def avg_betweenness(cls, G, bc:list=None) -> float:
+		if bc is None:			bc = cls.betweenness(G)
 		return float(np.mean(bc))
 	
 	@classmethod
 	def central_point_dominance(cls, G, bc:list=None) -> float:
-		if bc is None:			bc = cls.betweenness_centrality(G)
+		if bc is None:			bc = cls.betweenness(G)
 		bc_max = np.max(bc)
 		return float(np.sum([ bc_max - b for b in bc ]) / (len(bc) - 1))
 	
 	@classmethod
+	def page_rank(cls, G, damping:float=0.85) -> list:
+		assert (damping >= 0 and damping <= 1)
+		if not G._isig():
+			G = G.to('ig')
+		return G.data.pagerank(damping=damping)
+	
+	@classmethod
 	def as_dataframe(cls):
 		return pd.DataFrame({
-			'name':['betweenness centrality', 'average betweenness centrality','central point domimnance'],
-			'varname':['bc', 'avg_bc', 'cpd'],
-			'symbol': ['B_i', '<B>', 'CPD'],
-			'scope': ['vertex', 'graph', 'graph'],
-			'function': [cls.betweenness_centrality, cls.avg_betweenness_centrality, cls.central_point_dominance],
-			'dependence': [None, ['betweenness centrality'], ['betweenness centrality']],
+			'name':['betweenness centrality', 'average betweenness centrality','central point dominance', 'page rank'],
+			'varname':['bc', 'avg_bc', 'cpd', 'pagerank'],
+			'symbol': ['B_i', '<B>', 'CPD', 'pr_i'],
+			'scope': ['vertex', 'graph', 'graph', 'vertex'],
+			'function': [cls.betweenness, cls.avg_betweenness, cls.central_point_dominance, cls.page_rank],
+			'dependence': [None, ['betweenness centrality'], ['betweenness centrality'], None],
 			'default': None,
 			'category': 'centrality'
 		})
