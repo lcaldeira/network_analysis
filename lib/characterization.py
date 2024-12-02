@@ -61,15 +61,22 @@ class Distances():
 		return (1.0 / effic) if effic > 0 else np.inf
 	
 	@classmethod
+	def spanned_tree_coverage(cls, G, min_dist:tuple=None) -> list:
+		if min_dist is None:	min_dist = cls.shortest_dist(G)
+		st_lvl_width = map(np.bincount, min_dist)
+		st_coverage = map(np.cumsum, st_lvl_width)
+		return list(map(list, st_coverage))
+	
+	@classmethod
 	def as_dataframe(cls):
 		return pd.DataFrame({
-			'name':['shortest distances', 'shortest distances distribution', 'diameter','average geodesic distance', 'global efficiency', 'harmonic mean of the geodesic distances'],
-			'varname':['min_dist', 'p_min_dist', 'diam', 'avg_gdist', 'effic', 'hmean_gdist'],
-			'symbol': ['d_ij', 'P(d_ij)', 'D', 'l', 'E', 'h'],
-			'scope': ['vertex pair', 'distrib', 'graph', 'graph', 'graph', 'graph'],
-			'function': [cls.shortest_dist, cls.shortest_dist_distrib, cls.diameter, cls.avg_geodesic_dist, cls.global_efficiency, cls.hmean_geodesic_dist],
-			'dependence': [None, ['shortest distances'], ['shortest distances distribution'], ['shortest distances distribution'], ['shortest distances distribution'], ['global efficiency']],
-			'default': ([None] * 6),
+			'name':['shortest distances', 'shortest distances distribution', 'diameter','average geodesic distance', 'global efficiency', 'harmonic mean of the geodesic distances', 'spanned tree coverage'],
+			'varname':['min_dist', 'p_min_dist', 'diam', 'avg_gdist', 'effic', 'hmean_gdist', 'stc'],
+			'symbol': ['d_ij', 'P(d_ij)', 'D', 'l', 'E', 'h', 's*'],
+			'scope': ['vertex pair', 'distrib', 'graph', 'graph', 'graph', 'graph', 'vertex'],
+			'function': [cls.shortest_dist, cls.shortest_dist_distrib, cls.diameter, cls.avg_geodesic_dist, cls.global_efficiency, cls.hmean_geodesic_dist, cls.spanned_tree_coverage],
+			'dependence': [None, ['shortest distances'], ['shortest distances distribution'], ['shortest distances distribution'], ['shortest distances distribution'], ['global efficiency'], ['shortest distances']],
+			'default': ([None] * 7),
 			'category': 'distances'
 		})
 
