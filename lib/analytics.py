@@ -336,18 +336,20 @@ class Report():
 				changes['add'] += list(aux_table.columns)
 				changes['rmv'].append(c)
 		# transform sequence indices into new columns
-		elif (scope=='graph' and dcateg=='seq'):
+		elif (scope in ['graph', 'distrib'] and dcateg=='seq'):
 			for c in col_list:
 				aux_table = pd.DataFrame(pivot_table[c].tolist(), index=pivot_table.index)
 				aux_table.columns = [ f'{c}#{idx+1:03d}' for idx in range(len(aux_table.columns)) ]
+				if scope=='distrib':
+					aux_table.fillna(0.0, inplace=True)
 				pivot_table = pivot_table.join(aux_table)
 				del pivot_table[c]
 				changes['add'] += list(aux_table.columns)
 				changes['rmv'].append(c)
 		# transform sequence indices into new index lines
-		elif (scope == 'vertex' and dcateg=='seq'):
-			qt_vertices = [ np.max([ len(pivot_table.loc[i,c]) for c in col_list ]) for i,_ in pivot_table.iterrows() ]
-			pivot_table['vertex'] = [ np.arange(n) for n in qt_vertices ]
+		elif (scope=='vertex' and dcateg=='seq'):
+			qt_items = [ np.max([ len(pivot_table.loc[i,c]) for c in col_list ]) for i,_ in pivot_table.iterrows() ]
+			pivot_table[scope] = [ np.arange(n) for n in qt_items ]
 			pivot_table = pivot_table.explode(col_list + [scope]).set_index(scope, append=True)
 			changes['upd'] += col_list
 		return pivot_table, changes
@@ -407,7 +409,7 @@ class Report():
 		return pivot_table
 	
 	@classmethod
-	def _detail_(cls, pivot_table, networks):
+	def _detail_(cls, pivot_table, networks, multilevel):
 		mcols = list(pivot_table.columns)
 		ncols = ['collection', 'dataset', 'label', 'network']
 		mapping = {
@@ -417,10 +419,11 @@ class Report():
 		pivot_table = pivot_table.rename(columns=mapping)[ ncols + mcols ]
 		pivot_table['label'] = pivot_table['label'].astype('category')
 		pivot_table.index.name = 'sample'
-		pivot_table.columns = pd.MultiIndex.from_tuples([
-			*list(itt.product(['Y'], ncols)),
-			*list(itt.product(['X'], mcols)),
-		])
+		if multilevel:
+			pivot_table.columns = pd.MultiIndex.from_tuples([
+				*list(itt.product(['Y'], ncols)),
+				*list(itt.product(['X'], mcols)),
+			])
 		return pivot_table
 	
 	@classmethod
@@ -443,7 +446,7 @@ class Report():
 		return pivot_table
 	
 	@classmethod
-	def make(cls, datapool, network_subset=None, measure_subset=None, content='value', header='symbol', transform=None, expand=False, detail=False, split=None):
+	def make(cls, datapool, network_subset=None, measure_subset=None, content='value', header='symbol', transform=None, expand=False, detail=False, split=None, multilevel=True):
 		assert(content in ['value','time'])
 		networks = datapool.networks if network_subset is None else datapool.networks.loc[network_subset]
 		measures = datapool.measures if measure_subset is None else datapool.measures.loc[measure_subset]
@@ -455,7 +458,7 @@ class Report():
 		if expand:
 			pivot_table = cls._expand_(pivot_table, measures)
 		if detail:
-			pivot_table = cls._detail_(pivot_table, networks)
+			pivot_table = cls._detail_(pivot_table, networks, multilevel)
 		if split is not None:
 			pivot_table = cls._split_(pivot_table, split)
 		return pivot_table

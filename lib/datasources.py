@@ -27,11 +27,11 @@ class BaseNetworkCollection():
 		raise NotImplementedError
 	
 	@classmethod
-	def _load(cls, dataset, samples_per_label=None, balanced=False):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
 		raise NotImplementedError
 	
 	@classmethod
-	def __getitem__(cls, file_name, skip_rows=0):
+	def __getitem__(cls, file_name:str, skip_rows:int=0):
 		with open(file_name, 'r') as f:
 			return cls._parse(f.readlines()[skip_rows:])
 	
@@ -45,7 +45,7 @@ class BaseNetworkCollection():
 		return samples.groupby('label', group_keys=False).apply(func)
 	
 	@classmethod
-	def _progressbar(cls, files, msg):
+	def _progressbar(cls, files, msg:str):
 		pbar_msg = f'[{msg}]'
 		return tqdm(files, desc=f'{pbar_msg:30s}', ncols=80, leave=True, position=0)
 	
@@ -92,12 +92,12 @@ class SyntheticNetworks(BaseNetworkCollection):
 		for subdir, _, files in os.walk(cls._base + f'/{cls._collection}/{folder}'):
 			if len(files) <= 1:
 				continue
-			last_dir = subdir.split('/')[-1]
+			last_dir = os.path.normpath(subdir).split(os.sep)[-1]
 			file_list.append(pd.DataFrame({
 				'collection': cls._collection,
 				'dataset': folder,
 				'label': rename[last_dir][0],
-				'source': [ os.path.join(subdir, name) for name in files ],
+				'source': [ os.path.join(subdir, os.path.normpath(name)) for name in files ],
 				'prefix': rename[last_dir][1]
 			}))
 		return pd.concat(file_list, ignore_index=True)
@@ -114,7 +114,7 @@ class SyntheticNetworks(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset, samples_per_label=None, balanced=False):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'source'] }
 		samples = cls._filelist(dataset)
 		if samples_per_label is not None:
@@ -125,12 +125,12 @@ class SyntheticNetworks(BaseNetworkCollection):
 		for label in sorted(list(samples['label'].unique())):
 			mask = (samples['label'] == label)
 			for _, row in cls._progressbar(list(samples[mask].iterrows()), label):
-				filename = row['source']
+				filename = os.path.normpath(row['source'])
 				prefix = row['prefix']
 				with open(os.path.join(filename), 'r') as f:
 					nameinfo = { 
 						m.split('=')[0]: eval(m.split('=')[-1]) 
-						for m in filename[:-len('.txt') ].split('_')[1:]
+						for m in filename[:-len('.txt') ].split(os.sep)[-1].split('_')[1:]
 					}
 					N = nameinfo['n']
 					if not dataset.startswith('noise'):
@@ -146,7 +146,7 @@ class SyntheticNetworks(BaseNetworkCollection):
 					abbr = f'{prefix}(N={N}, K={K}' + (f', p={p}' if p is not None else '') + f')_#{r}'
 					M = (int(N*K/2.0) if cls._mode in ['scan','part'] else G.count_edges())
 					
-				netword_id = filename.split('/')[-1]
+				netword_id = filename.split(os.sep)[-1]
 				metadata['abbr'].append(abbr)
 				metadata['graph'].append(G if cls._mode != 'part' else None)
 				metadata['N'].append(N)
@@ -157,11 +157,8 @@ class SyntheticNetworks(BaseNetworkCollection):
 		samples.drop(columns='prefix', inplace=True)
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-1]) + list(metadata.columns)
-		return samples.merge(metadata)[columns].sort_values('abbr')
-		
-		for key in reversed(metadata.keys()):
-			samples.insert(3, key, metadata[key])
-		return samples.drop(columns='prefix')
+		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		return networks if transform is None else transform(networks)
 	
 	@classmethod
 	def classic(cls, *args, **kwargs):
@@ -198,7 +195,7 @@ class KeggMetabolicNetworks(BaseNetworkCollection):
 		assert(folder in cls._datasets)
 		subdir = cls._base + f'/{cls._collection}/{folder}'
 		df = pd.read_csv(subdir + '/labels/classes.txt', sep=' ', header=None, names=['label','source'])
-		df['source'] = list(map(lambda name: os.path.join(subdir, 'graphs', name.split('/')[-1]), df['source']))
+		df['source'] = list(map(lambda name: os.path.join(subdir, 'graphs', os.path.normpath(name).split(os.sep)[-1]), df['source']))
 		df.insert(0, 'collection', cls._collection)
 		df.insert(1, 'dataset', folder)
 		return df
@@ -213,7 +210,7 @@ class KeggMetabolicNetworks(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset, samples_per_label=None, balanced=False):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'source'] }
 		samples = cls._filelist(dataset)
 		if samples_per_label is not None:
@@ -242,7 +239,8 @@ class KeggMetabolicNetworks(BaseNetworkCollection):
 				
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-1]) + list(metadata.columns)
-		return samples.merge(metadata)[columns].sort_values('abbr')
+		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		return networks if transform is None else transform(networks)
 	
 	@classmethod
 	def actinobac(cls, *args, **kwargs):
@@ -286,14 +284,14 @@ class SnapEgoNetworks(BaseNetworkCollection):
 	def _filelist(cls, folder):
 		assert(folder in cls._datasets)
 		file_list = []
-		for subdir, _, files in os.walk(cls._base + f'/{cls._collection}/{folder}'):
+		for subdir, _, files in os.walk(os.path.normpath(cls._base + f'/{cls._collection}/{folder}')):
 			if len(files) <= 1:
 				continue
 			files = set(map(lambda name: name.split('.')[0], files))
 			file_list.append(pd.DataFrame({
 				'collection': cls._collection,
 				'dataset': folder,
-				'label': subdir.split('/')[-1],
+				'label': subdir.split(os.sep)[-1],
 				'source': [ os.path.join(subdir, name) for name in files ]
 			}))
 		return pd.concat(file_list, ignore_index=True)
@@ -309,7 +307,7 @@ class SnapEgoNetworks(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset, samples_per_label=None, balanced=False):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'source'] }
 		encode = {
 			'facebook': 'fb',
@@ -325,13 +323,14 @@ class SnapEgoNetworks(BaseNetworkCollection):
 		for label in list(samples['label'].unique()):
 			mask = (samples['label'] == label)
 			for filename in cls._progressbar(samples[mask]['source'], label):
+				filename = os.path.normpath(filename)
 				with open(os.path.join(filename + '.edges'), 'r') as f:
 					content = f.readlines()
 					M = len(content)
 					G = (None if cls._mode == 'scan' else cls._parse(content))
 					N = (None if cls._mode == 'scan' else G.count_nodes())
 					K = (None if cls._mode == 'scan' else round(M/N if N else 0, 2))
-				netword_id = filename.split('/')[-1]
+				netword_id = filename.split(os.sep)[-1]
 				metadata['abbr'].append(f'{encode[label]}#{netword_id}')
 				metadata['graph'].append(G if cls._mode != 'part' else None)
 				metadata['N'].append(N)
@@ -341,7 +340,8 @@ class SnapEgoNetworks(BaseNetworkCollection):
 		
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-1]) + list(metadata.columns)
-		return samples.merge(metadata)[columns].sort_values('abbr')
+		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		return networks if transform is None else transform(networks)
 	
 	@classmethod
 	def socialcircles(cls, *args, **kwargs):
@@ -389,7 +389,7 @@ class TudNetworkCollection(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset, samples_per_label=None, balanced=False):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'begin'] }
 		samples = cls._filelist(dataset)
 		if samples_per_label is not None:
@@ -399,7 +399,7 @@ class TudNetworkCollection(BaseNetworkCollection):
 		
 		for label in sorted(samples['label'].unique()):
 			mask = (samples['label'] == label)
-			filename = samples[mask]['source'].values[0]
+			filename = os.path.normpath(samples[mask]['source'].values[0])
 			assert(samples[mask]['label'].is_monotonic_increasing)
 			with open(filename, 'r') as f:
 				enumfile = enumerate(f)
@@ -426,7 +426,8 @@ class TudNetworkCollection(BaseNetworkCollection):
 							
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-3]) + list(metadata.columns[:-1]) + ['source']
-		return samples.merge(metadata)[columns].sort_values('abbr')
+		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		return networks if transform is None else transform(networks)
 
 	
 #====================================
@@ -533,5 +534,41 @@ class TudBioinformaticNetworks(TudNetworkCollection):
 	@classmethod
 	def proteins(cls, *args, **kwargs):
 		return cls._load('PROTEINS', *args, **kwargs)
+	
+
+
+#====================================
+class NetworksCrossCollection():
+	def __init__(self, include:list=None, *args, **kwargs):
+		if include is None:
+			include = [
+				SyntheticNetworks,
+				KeggMetabolicNetworks,
+				SnapEgoNetworks,
+				TudSocialNetworks,
+				TudBioinformaticNetworks
+			]
+		self.setup_args = args
+		self.setup_kwargs = kwargs
+		self.sources = {
+			source._collection: source
+			for source in include
+		}
+	
+	def load(self, collection, dataset, *args, **kwargs):
+		coll = self.sources[collection]
+		coll.setup(*self.setup_args, **self.setup_kwargs)
+		return coll._load(dataset, *args, **kwargs)
+	
+	def datasets(self):
+		#return {
+		#	coll: list(self.sources[coll]._datasets)
+		#	for coll in self.sources
+		#}
+		return [
+			(collname, dsname)
+			for collname in self.sources
+			for dsname in list(self.sources[collname]._datasets)
+		]
 	
 
