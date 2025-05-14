@@ -11,7 +11,7 @@ from tqdm import tqdm, trange
 
 import sklearn as skl
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import *
@@ -427,16 +427,16 @@ class Report():
 		return pivot_table
 	
 	@classmethod
-	def _split_(cls, pivot_table, cut):
+	def _split_(cls, pivot_table, partition):
 		strat = [ f'{x}/{y}' for x,y in pivot_table['Y'][['dataset','label']].values ]
 		# train/test split
-		if isinstance(cut, float):
-			idx_tr, idx_te = train_test_split(pivot_table.index, train_size=cut, stratify=strat)
+		if isinstance(partition, [int, float]):
+			idx_tr, idx_te = train_test_split(pivot_table.index, train_size=partition, stratify=strat)
 			pivot_table.loc[idx_tr, 'split'] = 'train'
 			pivot_table.loc[idx_te, 'split'] = 'test'
 			pivot_table.set_index('split', append=True, inplace=True)
 		# k-fold split
-		elif isinstance(size, int):
+		elif isinstance(partition, [list, tuple]):
 			#idx_tr, idx_te = train_test_split(pivot_table.index, train_size=train_size, stratify=strat)
 			#pivot_table.loc[idx_tr, 'fold'] = 'train'
 			#pivot_table.loc[idx_te, 'fold'] = 'test'
@@ -507,10 +507,14 @@ class ModelSelector():
 			'confusion matrix': confusion_matrix(y_te, y_pr)
 		}
 	
-	def run_experiment(self, identifier, datasets:dict, folds=1, reps=1, workers=1, timeout=None, indices=None):
+	def run_experiment(self, identifier, datasets:dict, folds=1, reps=1, workers=1, timeout=None, indices=None, 
+						exclude=[], verbose=True):
+		old_setting = np.seterr(divide='ignore', over='ignore')
+		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 		# add concurrency and time-out
-		kfolds = StratifiedKFold(n_splits=folds)
-		pbar = tqdm(total=len(self.classifiers)*folds*len(datasets), ncols=80, position=0, leave=True)
+		kfolds = RepeatedStratifiedKFold(n_splits=folds, n_repeats=reps)
+		if verbose:
+			pbar = tqdm(total=len(self.classifiers)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
 			(X, y) = datasets[dsname]
 			idx_split = kfolds.split(X, y) if indices is None else indices
@@ -518,19 +522,24 @@ class ModelSelector():
 			for k, (tr_idx, te_idx) in enumerate(idx_split):
 				scaler = StandardScaler()
 				train_data = scaler.fit_transform(X[tr_idx]), y[tr_idx]
-				test_data  = scaler.transform(X[te_idx])    , y[te_idx]
+				test_data  = to_num(scaler.transform(X[te_idx])), y[te_idx]
 				for i in range(len(self.classifiers)):
-					for r in range(reps):
-						self.reset_estimators(i)
-						res = self.evaluate(i, test_data, self.fit(i, train_data))
-						res['fold'] = k+1
-						res['repetition'] = r+1
-						results.append(res)
-					pbar.update()
+					self.reset_estimators(i)
+					res = self.evaluate(i, test_data, self.fit(i, train_data))
+					res['repetition'] = (k//folds)+1
+					res['fold'] = (k%folds)+1
+					for col in exclude:
+						del res[col]
+					results.append(res)
+					if verbose and res['fold']==folds:
+						pbar.update()
 			df = pd.DataFrame(results)
 			df.insert(0, 'experiment', identifier)
 			df.insert(1, 'dataset', dsname)
 			self.evaluation = (df if self.evaluation is None else pd.concat([self.evaluation, df], ignore_index=True))
+			for col in ['experiment', 'dataset', 'model name', 'model params']:
+				self.evaluation[col] = self.evaluation[col].astype('category')
+		np.seterr(**old_setting)
 	
 	def analyze(self, dataset, by, top=None, level=0):
 		if not isinstance(by, list):

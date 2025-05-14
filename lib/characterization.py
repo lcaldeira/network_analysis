@@ -15,7 +15,7 @@ class Distances():
 	@classmethod
 	def shortest_dist(cls, G) -> tuple:
 		if G._isnx():
-			min_dist = np.full([G.count_nodes()]*2, np.inf)
+			min_dist = np.full([G.num_nodes()]*2, np.inf)
 			for vi, distances in nx.all_pairs_shortest_path_length(G.data):
 				for vj in distances:
 					min_dist[vi, vj] = distances[vj]
@@ -32,7 +32,7 @@ class Distances():
 				if value not in counts:
 				    counts[value] = 0
 				counts[value] += 1
-		N = G.count_nodes()
+		N = G.num_nodes()
 		finite_dists = [ *filter(lambda x: x < np.inf, counts.keys()) ]
 		p_min_dist = np.zeros([ int(np.max(finite_dists)) + 2 ])
 		for d in counts:
@@ -149,6 +149,10 @@ class Connectivity():
 		if avg_deg is None:		avg_deg = cls.avg_degree(G, p_deg)
 		if var_deg is None:		var_deg = cls.var_degree(G, p_deg, avg_deg)
 		return cls.lth_stat_moment(p_deg, 4, avg_deg, np.std(var_deg))
+	
+	@classmethod
+	def num_conn_comps(cls, G) -> int:
+		return len(G.connected_components())
 	
 	# def avg_nearest_neighbour_lth(G, l, p_deg=None):
 	#	 if p_deg is None:
@@ -331,7 +335,7 @@ class Centrality():
 #		if avg_deg is None:		avg_deg = Connectivity.avg_degree(G)
 #		if avg_gdist is None:	avg_gdist = Distances.avg_geodesic_dist(G)
 #		if avg_cc is None:		avg_cc = ClusteringAndCycles.network_clustering_coeff(G)
-#		N = G.count_nodes()
+#		N = G.num_nodes()
 #		avg_gdist = round(avg_gdist, precision)
 #		avg_gdist_rand = 1/2 + (np.log(N) - np.euler_gamma) / np.log(avg_deg)
 #		avg_cc_lattice = round((3.0/4.0) * (avg_deg-2)/(avg_deg-1), precision) if avg_deg > 1 else np.inf
@@ -358,7 +362,7 @@ class SpectralAnalysis():
 	
 	@classmethod
 	def spectrum(cls, G, precision:int=12, max_nodes:int=100) -> list:
-		if G.count_nodes() <= max_nodes:
+		if G.num_nodes() <= max_nodes:
 			A = G.to_adj_matrix()
 			eigvals = np.linalg.eigvals(A)
 			return [ round(num.real, precision) + round(num.imag, precision)*1j for num in eigvals ]
@@ -556,11 +560,11 @@ class Automata():
 	@classmethod
 	def randomized_states(cls, G, state_space:list) -> np.ndarray:
 		state_space = list(set(state_space))
-		return np.random.choice(state_space, G.count_nodes())
+		return np.random.choice(state_space, G.num_nodes())
 	
 	@classmethod
 	def generalized_automaton(cls, G, transition_rule, num_steps:int, init_state:np.ndarray) -> tuple:
-		teps = np.zeros([ G.count_nodes(), num_steps+1 ], dtype=init_state.dtype)
+		teps = np.zeros([ G.num_nodes(), num_steps+1 ], dtype=init_state.dtype)
 		teps[:, 0] = init_state
 		for t in range(num_steps):
 			for v in G.nodes():
@@ -783,10 +787,10 @@ class Automata():
 #	@classmethod
 #	def adj_mtx_image(cls, G, l:int=128, s:float=0.25, mapping:str='lin') -> Image:
 #		if mapping == 'lin':
-#			n = max(l, np.ceil(G.count_nodes()*s + 1).astype(int))
+#			n = max(l, np.ceil(G.num_nodes()*s + 1).astype(int))
 #			f = lambda e: np.ceil(e*s).astype(int)
 #		elif mapping == 'exp':
-#			n = max(l, np.ceil(G.count_nodes()*s + 1).astype(int))
+#			n = max(l, np.ceil(G.num_nodes()*s + 1).astype(int))
 #			f = lambda e: np.ceil((l-1) * (1 - np.exp(-s*e/50))).astype(int)
 #		else:
 #			raise

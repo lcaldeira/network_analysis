@@ -27,7 +27,7 @@ class BaseNetworkCollection():
 		raise NotImplementedError
 	
 	@classmethod
-	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None, allow_invalid:bool=False):
 		raise NotImplementedError
 	
 	@classmethod
@@ -114,7 +114,7 @@ class SyntheticNetworks(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None, allow_invalid:bool=False):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'source'] }
 		samples = cls._filelist(dataset)
 		if samples_per_label is not None:
@@ -138,13 +138,13 @@ class SyntheticNetworks(BaseNetworkCollection):
 						K = nameinfo['k']
 					else:
 						G = cls._parse([ f.readlines(), N, 1 ])
-						K = round(2*G.count_edges()/N if N else 0, 2)
+						K = round(2*G.num_edges()/N if N else 0, 2)
 						if cls._mode in ['scan','part']:
 							G = None
 					r = nameinfo['i']
 					p = nameinfo['p'] if 'p' in nameinfo else None
 					abbr = f'{prefix}(N={N}, K={K}' + (f', p={p}' if p is not None else '') + f')_#{r}'
-					M = (int(N*K/2.0) if cls._mode in ['scan','part'] else G.count_edges())
+					M = (int(N*K/2.0) if cls._mode in ['scan','part'] else G.num_edges())
 					
 				netword_id = filename.split(os.sep)[-1]
 				metadata['abbr'].append(abbr)
@@ -158,6 +158,9 @@ class SyntheticNetworks(BaseNetworkCollection):
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-1]) + list(metadata.columns)
 		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		if not allow_invalid:
+			mask = (networks['N'] > 0) & (networks['M'] > 0)
+			networks = networks[mask]
 		return networks if transform is None else transform(networks)
 	
 	@classmethod
@@ -210,7 +213,7 @@ class KeggMetabolicNetworks(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None, allow_invalid:bool=False):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'source'] }
 		samples = cls._filelist(dataset)
 		if samples_per_label is not None:
@@ -227,7 +230,7 @@ class KeggMetabolicNetworks(BaseNetworkCollection):
 					content = f.readlines()
 					N = len(content)
 					G = (None if cls._mode == 'scan' else cls._parse(content))
-					M = (None if cls._mode == 'scan' else G.count_edges())
+					M = (None if cls._mode == 'scan' else G.num_edges())
 					K = (None if cls._mode == 'scan' else round(M/N if N else 0, 2))
 					
 				metadata['abbr'].append(f'{prefix}:{suffix}')
@@ -240,6 +243,9 @@ class KeggMetabolicNetworks(BaseNetworkCollection):
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-1]) + list(metadata.columns)
 		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		if not allow_invalid:
+			mask = (networks['N'] > 0) & (networks['M'] > 0)
+			networks = networks[mask]
 		return networks if transform is None else transform(networks)
 	
 	@classmethod
@@ -307,7 +313,7 @@ class SnapEgoNetworks(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None, allow_invalid:bool=False):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'source'] }
 		encode = {
 			'facebook': 'fb',
@@ -328,7 +334,7 @@ class SnapEgoNetworks(BaseNetworkCollection):
 					content = f.readlines()
 					M = len(content)
 					G = (None if cls._mode == 'scan' else cls._parse(content))
-					N = (None if cls._mode == 'scan' else G.count_nodes())
+					N = (None if cls._mode == 'scan' else G.num_nodes())
 					K = (None if cls._mode == 'scan' else round(M/N if N else 0, 2))
 				netword_id = filename.split(os.sep)[-1]
 				metadata['abbr'].append(f'{encode[label]}#{netword_id}')
@@ -341,6 +347,9 @@ class SnapEgoNetworks(BaseNetworkCollection):
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-1]) + list(metadata.columns)
 		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		if not allow_invalid:
+			mask = (networks['N'] > 0) & (networks['M'] > 0)
+			networks = networks[mask]
 		return networks if transform is None else transform(networks)
 	
 	@classmethod
@@ -389,7 +398,7 @@ class TudNetworkCollection(BaseNetworkCollection):
 		return G
 	
 	@classmethod
-	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None):
+	def _load(cls, dataset:str, samples_per_label:int=None, balanced:bool=False, transform:callable=None, allow_invalid:bool=False):
 		metadata = { key: [] for key in ['abbr', 'N', 'M', 'K', 'graph', 'begin'] }
 		samples = cls._filelist(dataset)
 		if samples_per_label is not None:
@@ -415,7 +424,7 @@ class TudNetworkCollection(BaseNetworkCollection):
 							break
 					M = len(content)
 					G = (None if cls._mode == 'scan' else cls._parse(content))
-					N = (None if cls._mode == 'scan' else G.count_nodes())
+					N = (None if cls._mode == 'scan' else G.num_nodes())
 					K = (None if cls._mode == 'scan' else round(M/N if N else 0, 2))
 					metadata['abbr'].append(f'{dataset.lower()}#{idx+1}')
 					metadata['graph'].append(G if cls._mode != 'part' else None)
@@ -423,10 +432,13 @@ class TudNetworkCollection(BaseNetworkCollection):
 					metadata['M'].append(M)
 					metadata['K'].append(K)
 					metadata['begin'].append(begin)
-							
+					
 		metadata = pd.DataFrame(metadata)
 		columns = list(samples.columns[:-3]) + list(metadata.columns[:-1]) + ['source']
 		networks = samples.merge(metadata)[columns].sort_values('abbr')
+		if not allow_invalid:
+			mask = (networks['N'] > 0) & (networks['M'] > 0)
+			networks = networks[mask]
 		return networks if transform is None else transform(networks)
 
 	
