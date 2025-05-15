@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import itertools as itt
 from tqdm import trange, tqdm
-from lib.containers import GraphAPI
+from containers import GraphAPI
 from torch.utils.data import Dataset, DataLoader, Subset
 from sklearn.model_selection import train_test_split
 
