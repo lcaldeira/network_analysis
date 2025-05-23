@@ -32,12 +32,24 @@ class GraphAPI():
 		else			 : raise TypeError('Unknown graph data type.')
 	
 	def to_directed(self):
-		if self.is_directed(): return self
-		else                 : return self.data.to_directed()
+		if self.is_directed():
+			return self
+		elif self._isnx():
+			return self.data.to_directed()
+		elif self._isig():
+			G = self.copy()
+			G.data.to_directed()
+			return G
 	
 	def to_undirected(self):
-		if not self.is_directed(): return self
-		else                     : return self.data.to_undirected()
+		if self.is_undirected():
+			return self
+		elif self._isnx():
+			return self.data.to_undirected()
+		elif self._isig():
+			G = self.copy()
+			G.data.to_undirected()
+			return G
 	
 	def nodes(self):
 		if   self._isnx(): return list(self.data.nodes)
