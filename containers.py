@@ -63,7 +63,7 @@ class GraphAPI():
 	
 	def neighbors(self, u, mode:str='all', astype=list):
 		assert mode in ['all', 'in', 'out'], ValueError('The value of "mode" must be one of ["all", "in", "out"].')
-		if   self._isnx() and mode == 'out': return astype(self.data.neighbors(u))
+		if   self._isnx() and (mode == 'out' or not self.is_directed()): return astype(self.data.neighbors(u))
 		elif self._isnx() and mode == 'in': return astype(self.data.predecessors(u))
 		elif self._isnx() and mode == 'all': return astype(itt.chain(self.data.neighbors(u), self.data.predecessors(u)))
 		elif self._isig(): return astype(self.data.neighbors(u, mode))
