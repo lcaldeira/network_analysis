@@ -488,21 +488,27 @@ class ModelSelector():
 		lbl = list(set(y_pr))
 		clf_name = type(clf).__name__
 		return {
+			# model info
 			'classifier': clf,
 			'model name': clf_name,
 			'model params': str(clf)[len(clf_name)+1:-1], 
+			# experiment info
 			'fold': None, 
 			'repetition': None,
 			'fit time (s)': fit_time,
 			'prediction time (ms/sample)': 1e3 * (tf - ti) / len(y_te),
+			# evaluation info
 			'accuracy': accuracy_score(y_te, y_pr),
 			'balanced accuracy': balanced_accuracy_score(y_te, y_pr),
-			'precision micro': precision_score(y_te, y_pr, average='micro', labels=lbl),
-			'precision macro': precision_score(y_te, y_pr, average='macro', labels=lbl),
-			'recall micro': recall_score(y_te, y_pr, average='micro', labels=lbl),
-			'recall macro': recall_score(y_te, y_pr, average='macro', labels=lbl),
-			'f1 micro': f1_score(y_te, y_pr, average='micro', labels=lbl),
-			'f1 macro': f1_score(y_te, y_pr, average='macro', labels=lbl),
+			'precision (micro)': precision_score(y_te, y_pr, average='micro', labels=lbl),
+			'precision (macro)': precision_score(y_te, y_pr, average='macro', labels=lbl),
+			'precision (weighted)': precision_score(y_te, y_pr, average='weighted', labels=lbl),
+			'recall (micro)': recall_score(y_te, y_pr, average='micro', labels=lbl),
+			'recall (macro)': recall_score(y_te, y_pr, average='macro', labels=lbl),
+			'recall (weighted)': recall_score(y_te, y_pr, average='weighted', labels=lbl),
+			'f1 (micro)': f1_score(y_te, y_pr, average='micro', labels=lbl),
+			'f1 (macro)': f1_score(y_te, y_pr, average='macro', labels=lbl),
+			'f1 (weighted)': f1_score(y_te, y_pr, average='weighted', labels=lbl),
 			'confusion matrix': confusion_matrix(y_te, y_pr)
 		}
 	
@@ -543,11 +549,11 @@ class ModelSelector():
 	def analyze(self, dataset, by, top=None, level=0):
 		if not isinstance(by, list):
 			by = [by]
-		identifiers = ['dataset', 'experiment', 'model name', 'model params']
+		identifiers = ['experiment', 'model name', 'model params']
 		reductions = ['mean', 'std', 'max', 'min'][:level+1]
 		exp_filter = (self.evaluation['dataset'] == dataset)
 		df = self.evaluation[exp_filter][identifiers + by]
-		df = df.groupby(identifiers).aggregate(reductions)[by]
+		df = df.groupby(identifiers, observed=True).aggregate(reductions)[by]
 		df.sort_values(list(itt.product(by, ['mean'])), kind='stable', ascending=False, inplace=True)
 		df.reset_index(inplace=True)
 		df.index = df.index + 1
