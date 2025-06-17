@@ -512,19 +512,26 @@ class ModelSelector():
 			'confusion matrix': confusion_matrix(y_te, y_pr)
 		}
 	
-	def run_experiment(self, identifier, datasets:dict, folds=1, reps=1, workers=1, timeout=None, indices=None, 
-						exclude=[], verbose=True):
+	def split_datasets(self, data, folds:int=1, reps:int=1, astype=iter):
+		kfolds = RepeatedStratifiedKFold(n_splits=folds, n_repeats=reps)
+		if isinstance(data, dict):
+			indices = { name: astype(kfolds.split(X, y)) for name, (X, y) in data.items() }
+		elif isinstance(data, tuple):
+			indices = astype(kfolds.split(*data))
+		return indices
+	
+	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, indices:dict=None, 
+						exclude:list=[], verbose:bool=True):
 		old_setting = np.seterr(divide='ignore', over='ignore')
 		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-		# add concurrency and time-out
-		kfolds = RepeatedStratifiedKFold(n_splits=folds, n_repeats=reps)
+		if indices is None:
+			indices = self.split_dataset(datasets, folds, reps)
 		if verbose:
 			pbar = tqdm(total=len(self.classifiers)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
 			(X, y) = datasets[dsname]
-			idx_split = kfolds.split(X, y) if indices is None else indices
 			results = []
-			for k, (tr_idx, te_idx) in enumerate(idx_split):
+			for k, (tr_idx, te_idx) in enumerate(indices[dsname]):
 				scaler = StandardScaler()
 				train_data = scaler.fit_transform(X[tr_idx]), y[tr_idx]
 				test_data  = to_num(scaler.transform(X[te_idx])), y[te_idx]
@@ -549,7 +556,7 @@ class ModelSelector():
 	def analyze(self, dataset, by, top=None, level=0):
 		if not isinstance(by, list):
 			by = [by]
-		identifiers = ['experiment', 'model name', 'model params']
+		identifiers = ['experiment', 'dataset', 'model name', 'model params']
 		reductions = ['mean', 'std', 'max', 'min'][:level+1]
 		exp_filter = (self.evaluation['dataset'] == dataset)
 		df = self.evaluation[exp_filter][identifiers + by]
@@ -570,6 +577,7 @@ class ModelSelector():
 			values=[by],
 			index=['experiment', 'model name', 'model params'],
 			columns=['dataset'],
+			observed=True,
 			sort=False
 		)
 		df.columns = df.columns.droplevel(0)
