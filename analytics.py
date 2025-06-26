@@ -468,7 +468,9 @@ class Report():
 #====================================
 class ModelSelector():
 	
-	def __init__(self, classifier_list):
+	def __init__(self, mode:str, classifier_list:list):
+		assert mode in ['classification', 'regression'], TypeError("'mode' must be one of 'classification', 'regression")
+		self.mode = mode
 		self.classifiers = classifier_list
 		self.evaluation = None
 	
@@ -488,24 +490,35 @@ class ModelSelector():
 		tf = time.time()
 		lbl = list(set(y_pr))
 		clf_name = type(clf).__name__
-		return {
+		result = {
 			'classifier': clf,
 			'model name': clf_name,
 			'model params': str(clf)[len(clf_name)+1:-1], 
 			'fold': None, 
 			'repetition': None,
 			'fit time (s)': fit_time,
-			'prediction time (ms/sample)': 1e3 * (tf - ti) / len(y_te),
-			'accuracy': accuracy_score(y_te, y_pr),
-			'balanced accuracy': balanced_accuracy_score(y_te, y_pr),
-			'precision micro': precision_score(y_te, y_pr, average='micro', labels=lbl),
-			'precision macro': precision_score(y_te, y_pr, average='macro', labels=lbl),
-			'recall micro': recall_score(y_te, y_pr, average='micro', labels=lbl),
-			'recall macro': recall_score(y_te, y_pr, average='macro', labels=lbl),
-			'f1 micro': f1_score(y_te, y_pr, average='micro', labels=lbl),
-			'f1 macro': f1_score(y_te, y_pr, average='macro', labels=lbl),
-			'confusion matrix': confusion_matrix(y_te, y_pr)
+			'prediction time (ms/sample)': 1e3 * (tf - ti) / len(y_te)
 		}
+		if self.mode == 'classification':
+			result.update({
+				'accuracy': accuracy_score(y_te, y_pr),
+				'balanced accuracy': balanced_accuracy_score(y_te, y_pr),
+				'precision micro': precision_score(y_te, y_pr, average='micro', labels=lbl),
+				'precision macro': precision_score(y_te, y_pr, average='macro', labels=lbl),
+				'recall micro': recall_score(y_te, y_pr, average='micro', labels=lbl),
+				'recall macro': recall_score(y_te, y_pr, average='macro', labels=lbl),
+				'f1 micro': f1_score(y_te, y_pr, average='micro', labels=lbl),
+				'f1 macro': f1_score(y_te, y_pr, average='macro', labels=lbl),
+				'confusion matrix': confusion_matrix(y_te, y_pr)
+			})
+		elif self.mode == 'regression':
+			result.update({
+				'MAE': mean_absolute_error(y_te, y_pr),
+				'MAPE': mean_absolute_percentage_error(y_te, y_pr),
+				'MSE': mean_squared_error(y_te, y_pr),
+				'RMSE': root_mean_squared_error(y_te, y_pr),
+			})
+		return result
 	
 	def run_experiment(self, identifier, datasets:dict, folds=1, reps=1, workers=1, timeout=None, indices=None, 
 						exclude=[], verbose=True):
