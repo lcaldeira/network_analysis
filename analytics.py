@@ -2,16 +2,15 @@ import os
 import gc
 import time
 import pickle
-import dill
 import numpy as np
 import pandas as pd
 import itertools as itt
 from functools import reduce
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
 import sklearn as skl
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold
+from sklearn.model_selection import train_test_split, RepeatedKFold, RepeatedStratifiedKFold
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import *
@@ -494,6 +493,7 @@ class ModelSelector():
 			'classifier': clf,
 			'model name': clf_name,
 			'model params': str(clf)[len(clf_name)+1:-1], 
+			# experiment info
 			'fold': None, 
 			'repetition': None,
 			'fit time (s)': fit_time,
@@ -503,12 +503,15 @@ class ModelSelector():
 			result.update({
 				'accuracy': accuracy_score(y_te, y_pr),
 				'balanced accuracy': balanced_accuracy_score(y_te, y_pr),
-				'precision micro': precision_score(y_te, y_pr, average='micro', labels=lbl),
-				'precision macro': precision_score(y_te, y_pr, average='macro', labels=lbl),
-				'recall micro': recall_score(y_te, y_pr, average='micro', labels=lbl),
-				'recall macro': recall_score(y_te, y_pr, average='macro', labels=lbl),
-				'f1 micro': f1_score(y_te, y_pr, average='micro', labels=lbl),
-				'f1 macro': f1_score(y_te, y_pr, average='macro', labels=lbl),
+				'precision (micro)': precision_score(y_te, y_pr, average='micro', labels=lbl),
+				'precision (macro)': precision_score(y_te, y_pr, average='macro', labels=lbl),
+				'precision (weighted)': precision_score(y_te, y_pr, average='weighted', labels=lbl),
+				'recall (micro)': recall_score(y_te, y_pr, average='micro', labels=lbl),
+				'recall (macro)': recall_score(y_te, y_pr, average='macro', labels=lbl),
+				'recall (weighted)': recall_score(y_te, y_pr, average='weighted', labels=lbl),
+				'f1 (micro)': f1_score(y_te, y_pr, average='micro', labels=lbl),
+				'f1 (macro)': f1_score(y_te, y_pr, average='macro', labels=lbl),
+				'f1 (weighted)': f1_score(y_te, y_pr, average='weighted', labels=lbl),
 				'confusion matrix': confusion_matrix(y_te, y_pr)
 			})
 		elif self.mode == 'regression':
@@ -520,19 +523,27 @@ class ModelSelector():
 			})
 		return result
 	
-	def run_experiment(self, identifier, datasets:dict, folds=1, reps=1, workers=1, timeout=None, indices=None, 
-						exclude=[], verbose=True):
+	def split_datasets(self, data, folds:int=1, reps:int=1, astype=iter):
+		KFClass = RepeatedStratifiedKFold if self.mode=='classification' else RepeatedKFold
+		kfolds = KFClass(n_splits=folds, n_repeats=reps)
+		if isinstance(data, dict):
+			indices = { name: astype(kfolds.split(X, y)) for name, (X, y) in data.items() }
+		elif isinstance(data, tuple):
+			indices = astype(kfolds.split(*data))
+		return indices
+	
+	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, indices:dict=None, 
+						exclude:list=[], verbose:bool=True):
 		old_setting = np.seterr(divide='ignore', over='ignore')
 		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-		# add concurrency and time-out
-		kfolds = RepeatedStratifiedKFold(n_splits=folds, n_repeats=reps)
+		if indices is None:
+			indices = self.split_datasets(datasets, folds, reps)
 		if verbose:
 			pbar = tqdm(total=len(self.classifiers)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
 			(X, y) = datasets[dsname]
-			idx_split = kfolds.split(X, y) if indices is None else indices
 			results = []
-			for k, (tr_idx, te_idx) in enumerate(idx_split):
+			for k, (tr_idx, te_idx) in enumerate(indices[dsname]):
 				scaler = StandardScaler()
 				train_data = scaler.fit_transform(X[tr_idx]), y[tr_idx]
 				test_data  = to_num(scaler.transform(X[te_idx])), y[te_idx]
@@ -557,12 +568,12 @@ class ModelSelector():
 	def analyze(self, dataset, by, top=None, level=0):
 		if not isinstance(by, list):
 			by = [by]
-		identifiers = ['dataset', 'experiment', 'model name', 'model params']
+		identifiers = ['experiment', 'dataset', 'model name', 'model params']
 		reductions = ['mean', 'std', 'max', 'min'][:level+1]
 		exp_filter = (self.evaluation['dataset'] == dataset)
 		df = self.evaluation[exp_filter][identifiers + by]
-		df = df.groupby(identifiers).aggregate(reductions)[by]
-		df.sort_values(list(itt.product(by, ['mean'])), kind='stable', ascending=False, inplace=True)
+		df = df.groupby(identifiers, observed=True).aggregate(reductions)[by]
+		df.sort_values(list(itt.product(by, ['mean'])), kind='stable', ascending=(self.mode=='regression'), inplace=True)
 		df.reset_index(inplace=True)
 		df.index = df.index + 1
 		if level == 0:
@@ -578,12 +589,13 @@ class ModelSelector():
 			values=[by],
 			index=['experiment', 'model name', 'model params'],
 			columns=['dataset'],
+			observed=True,
 			sort=False
 		)
 		df.columns = df.columns.droplevel(0)
 		if sorting_score:
 			df.insert(0, 'global score', df.mean(axis=1).values)
-			df.sort_values(by='global score', kind='stable', ascending=False, inplace=True)
+			df.sort_values(by='global score', kind='stable', ascending=(self.mode=='regression'), inplace=True)
 			df.reset_index(inplace=True)
 			df.columns = pd.MultiIndex.from_tuples([
 				*list(itt.product(['model info'], ['experiment', 'classifier', 'params', 'global score'])),
