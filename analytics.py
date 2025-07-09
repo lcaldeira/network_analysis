@@ -467,30 +467,49 @@ class Report():
 #====================================
 class ModelSelector():
 	
-	def __init__(self, mode:str, classifier_list:list):
+	def __init__(self, mode:str, architectures:list=[]):
 		assert mode in ['classification', 'regression'], TypeError("'mode' must be one of 'classification', 'regression")
 		self.mode = mode
-		self.classifiers = classifier_list
+		self.architectures = architectures
 		self.evaluation = None
+
+	def save(self, path):
+		self.evaluation.to_csv(os.path.join(path, 'msel-eval.csv.xz'), compression='xz', index=False)
+		self.reset_estimators()
+		with open(os.path.join(path, "msel-archi.pkl"), 'wb') as f:
+			pickle.dump(self.architectures, f)
+		with open(os.path.join(path, "msel-model.pkl"), 'wb') as f:
+			pickle.dump(self.evaluation["model"].values, f)
+	
+	def load(self, path):
+		self.evaluation = pd.read_csv(os.path.join(path, 'msel-eval.csv.xz'))
+		self.evaluation.replace(np.nan, "", inplace=True)
+		for col in self.evaluation.columns[9:]:
+			if self.evaluation[col].dtype == 'object':
+				self.evaluation[col] = self.evaluation[col].map(eval)
+		with open(os.path.join(path, "msel-archi.pkl"), 'rb') as f:
+			self.architectures = pickle.load(f)
+		with open(os.path.join(path, "msel-model.pkl"), 'rb') as f:
+			self.evaluation["model"] = pickle.load(f)
 	
 	@ignore_warnings(category=ConvergenceWarning)
 	def fit(self, i, data):
 		(X_tr, y_tr) = data
 		ti = time.time()
-		self.classifiers[i].fit(X_tr, y_tr)
+		self.architectures[i].fit(X_tr, y_tr)
 		tf = time.time()
 		return tf - ti
 	
 	def evaluate(self, i, data, fit_time=None):
 		(X_te, y_te) = data
-		clf = self.classifiers[i]
+		clf = self.architectures[i]
 		ti = time.time()
 		y_pr = clf.predict(X_te)
 		tf = time.time()
 		lbl = list(set(y_pr))
 		clf_name = type(clf).__name__
 		result = {
-			'classifier': clf,
+			'model': clf,
 			'model name': clf_name,
 			'model params': str(clf)[len(clf_name)+1:-1], 
 			# experiment info
@@ -539,7 +558,7 @@ class ModelSelector():
 		if indices is None:
 			indices = self.split_datasets(datasets, folds, reps)
 		if verbose:
-			pbar = tqdm(total=len(self.classifiers)*len(datasets)*reps, ncols=80, position=0, leave=True)
+			pbar = tqdm(total=len(self.architectures)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
 			(X, y) = datasets[dsname]
 			results = []
@@ -547,7 +566,7 @@ class ModelSelector():
 				scaler = StandardScaler()
 				train_data = scaler.fit_transform(X[tr_idx]), y[tr_idx]
 				test_data  = to_num(scaler.transform(X[te_idx])), y[te_idx]
-				for i in range(len(self.classifiers)):
+				for i in range(len(self.architectures)):
 					self.reset_estimators(i)
 					res = self.evaluate(i, test_data, self.fit(i, train_data))
 					res['repetition'] = (k//folds)+1
@@ -598,7 +617,7 @@ class ModelSelector():
 			df.sort_values(by='global score', kind='stable', ascending=(self.mode=='regression'), inplace=True)
 			df.reset_index(inplace=True)
 			df.columns = pd.MultiIndex.from_tuples([
-				*list(itt.product(['model info'], ['experiment', 'classifier', 'params', 'global score'])),
+				*list(itt.product(['model info'], ['experiment', 'model', 'params', 'global score'])),
 				*list(itt.product([by], self.evaluation['dataset'].unique())),
 			])
 			df.index = df.index + 1
@@ -609,7 +628,7 @@ class ModelSelector():
 	
 	def reset_estimators(self, i=None):
 		if i is None:
-			self.classifiers = skl.base.clone(self.classifiers)
+			self.architectures = list(map(skl.base.clone, self.architectures))
 		else:
-			self.classifiers[i] = skl.base.clone(self.classifiers[i])
+			self.architectures[i] = skl.base.clone(self.architectures[i])
 
