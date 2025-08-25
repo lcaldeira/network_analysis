@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 import sklearn as skl
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold
+from sklearn.model_selection import train_test_split, RepeatedKFold, RepeatedStratifiedKFold
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import *
@@ -467,72 +467,113 @@ class Report():
 #====================================
 class ModelSelector():
 	
-	def __init__(self, classifier_list):
-		self.classifiers = classifier_list
+	def __init__(self, mode:str, architectures:list=[]):
+		assert mode in ['classification', 'regression'], ValueError("'mode' must be one of 'classification', 'regression")
+		self.mode = mode
+		self.architectures = architectures
 		self.evaluation = None
+
+	def save(self, path):
+		self.evaluation.to_csv(os.path.join(path, 'msel-eval.csv.xz'), compression='xz', index=False)
+		self.reset_estimators()
+		with open(os.path.join(path, "msel-archi.pkl"), 'wb') as f:
+			pickle.dump(self.architectures, f)
+		with open(os.path.join(path, "msel-model.pkl"), 'wb') as f:
+			pickle.dump(self.evaluation["model"].values, f)
+	
+	def load(self, path):
+		self.evaluation = pd.read_csv(os.path.join(path, 'msel-eval.csv.xz'))
+		self.evaluation.replace(np.nan, "", inplace=True)
+		for col in self.evaluation.columns[9:]:
+			if self.evaluation[col].dtype == 'object':
+				self.evaluation[col] = self.evaluation[col].map(eval)
+		with open(os.path.join(path, "msel-archi.pkl"), 'rb') as f:
+			self.architectures = pickle.load(f)
+		with open(os.path.join(path, "msel-model.pkl"), 'rb') as f:
+			self.evaluation["model"] = pickle.load(f)
 	
 	@ignore_warnings(category=ConvergenceWarning)
 	def fit(self, i, data):
 		(X_tr, y_tr) = data
 		ti = time.time()
-		self.classifiers[i].fit(X_tr, y_tr)
+		self.architectures[i].fit(X_tr, y_tr)
 		tf = time.time()
 		return tf - ti
 	
 	def evaluate(self, i, data, fit_time=None):
 		(X_te, y_te) = data
-		clf = self.classifiers[i]
+		clf = self.architectures[i]
 		ti = time.time()
 		y_pr = clf.predict(X_te)
 		tf = time.time()
 		lbl = list(set(y_pr))
 		clf_name = type(clf).__name__
-		return {
-			# model info
-			'classifier': clf,
+		result = {
+			'model': clf,
 			'model name': clf_name,
 			'model params': str(clf)[len(clf_name)+1:-1], 
 			# experiment info
 			'fold': None, 
 			'repetition': None,
 			'fit time (s)': fit_time,
-			'prediction time (ms/sample)': 1e3 * (tf - ti) / len(y_te),
-			# evaluation info
-			'accuracy': accuracy_score(y_te, y_pr),
-			'balanced accuracy': balanced_accuracy_score(y_te, y_pr),
-			'precision (micro)': precision_score(y_te, y_pr, average='micro', labels=lbl),
-			'precision (macro)': precision_score(y_te, y_pr, average='macro', labels=lbl),
-			'precision (weighted)': precision_score(y_te, y_pr, average='weighted', labels=lbl),
-			'recall (micro)': recall_score(y_te, y_pr, average='micro', labels=lbl),
-			'recall (macro)': recall_score(y_te, y_pr, average='macro', labels=lbl),
-			'recall (weighted)': recall_score(y_te, y_pr, average='weighted', labels=lbl),
-			'f1 (micro)': f1_score(y_te, y_pr, average='micro', labels=lbl),
-			'f1 (macro)': f1_score(y_te, y_pr, average='macro', labels=lbl),
-			'f1 (weighted)': f1_score(y_te, y_pr, average='weighted', labels=lbl),
-			'confusion matrix': confusion_matrix(y_te, y_pr)
+			'prediction time (ms/sample)': 1e3 * (tf - ti) / len(y_te)
 		}
+		if self.mode == 'classification':
+			result.update({
+				'accuracy': accuracy_score(y_te, y_pr),
+				'balanced accuracy': balanced_accuracy_score(y_te, y_pr),
+				'precision (micro)': precision_score(y_te, y_pr, average='micro', labels=lbl),
+				'precision (macro)': precision_score(y_te, y_pr, average='macro', labels=lbl),
+				'precision (weighted)': precision_score(y_te, y_pr, average='weighted', labels=lbl),
+				'recall (micro)': recall_score(y_te, y_pr, average='micro', labels=lbl),
+				'recall (macro)': recall_score(y_te, y_pr, average='macro', labels=lbl),
+				'recall (weighted)': recall_score(y_te, y_pr, average='weighted', labels=lbl),
+				'f1 (micro)': f1_score(y_te, y_pr, average='micro', labels=lbl),
+				'f1 (macro)': f1_score(y_te, y_pr, average='macro', labels=lbl),
+				'f1 (weighted)': f1_score(y_te, y_pr, average='weighted', labels=lbl),
+				'confusion matrix': confusion_matrix(y_te, y_pr)
+			})
+		elif self.mode == 'regression':
+			result.update({
+				'MAE': mean_absolute_error(y_te, y_pr),
+				'MAPE': mean_absolute_percentage_error(y_te, y_pr),
+				'MSE': mean_squared_error(y_te, y_pr),
+				'RMSE': root_mean_squared_error(y_te, y_pr),
+			})
+		return result
 	
-	def run_experiment(self, identifier, datasets:dict, folds=1, reps=1, workers=1, timeout=None, indices=None, 
-						exclude=[], verbose=True):
+	def split_datasets(self, data, folds:int=1, reps:int=1, strat:bool=False, astype=iter):
+		KFClass = RepeatedStratifiedKFold if strat else RepeatedKFold
+		kfolds = KFClass(n_splits=folds, n_repeats=reps)
+		if isinstance(data, dict):
+			indices = { name: astype(kfolds.split(X, y)) for name, (X, y) in data.items() }
+		elif isinstance(data, tuple):
+			indices = astype(kfolds.split(*data))
+		return indices
+	
+	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, strat:bool=False, 
+						indices:dict=None, exclude:list=[], keep:str='all', verbose:bool=True):
+		assert (keep in ['all', 'best', 'none']), ValueError("'keep' must be one of 'all', 'best', 'none'")
 		old_setting = np.seterr(divide='ignore', over='ignore')
 		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-		# add concurrency and time-out
-		kfolds = RepeatedStratifiedKFold(n_splits=folds, n_repeats=reps)
+		if indices is None:
+			indices = self.split_datasets(datasets, folds, reps, strat)
 		if verbose:
-			pbar = tqdm(total=len(self.classifiers)*len(datasets)*reps, ncols=80, position=0, leave=True)
+			pbar = tqdm(total=len(self.architectures)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
 			(X, y) = datasets[dsname]
-			idx_split = kfolds.split(X, y) if indices is None else indices
 			results = []
-			for k, (tr_idx, te_idx) in enumerate(idx_split):
+			for k, (tr_idx, te_idx) in enumerate(indices[dsname]):
 				scaler = StandardScaler()
 				train_data = scaler.fit_transform(X[tr_idx]), y[tr_idx]
 				test_data  = to_num(scaler.transform(X[te_idx])), y[te_idx]
-				for i in range(len(self.classifiers)):
+				for i in range(len(self.architectures)):
 					self.reset_estimators(i)
 					res = self.evaluate(i, test_data, self.fit(i, train_data))
 					res['repetition'] = (k//folds)+1
 					res['fold'] = (k%folds)+1
+					if keep = 'none':
+						res['model'] = None
 					for col in exclude:
 						del res[col]
 					results.append(res)
@@ -541,6 +582,8 @@ class ModelSelector():
 			df = pd.DataFrame(results)
 			df.insert(0, 'experiment', identifier)
 			df.insert(1, 'dataset', dsname)
+			if keep = 'best':
+				raise NotImplementedError
 			self.evaluation = (df if self.evaluation is None else pd.concat([self.evaluation, df], ignore_index=True))
 			for col in ['experiment', 'dataset', 'model name', 'model params']:
 				self.evaluation[col] = self.evaluation[col].astype('category')
@@ -549,12 +592,12 @@ class ModelSelector():
 	def analyze(self, dataset, by, top=None, level=0):
 		if not isinstance(by, list):
 			by = [by]
-		identifiers = ['experiment', 'model name', 'model params']
+		identifiers = ['experiment', 'dataset', 'model name', 'model params']
 		reductions = ['mean', 'std', 'max', 'min'][:level+1]
 		exp_filter = (self.evaluation['dataset'] == dataset)
 		df = self.evaluation[exp_filter][identifiers + by]
 		df = df.groupby(identifiers, observed=True).aggregate(reductions)[by]
-		df.sort_values(list(itt.product(by, ['mean'])), kind='stable', ascending=False, inplace=True)
+		df.sort_values(list(itt.product(by, ['mean'])), kind='stable', ascending=(self.mode=='regression'), inplace=True)
 		df.reset_index(inplace=True)
 		df.index = df.index + 1
 		if level == 0:
@@ -570,15 +613,16 @@ class ModelSelector():
 			values=[by],
 			index=['experiment', 'model name', 'model params'],
 			columns=['dataset'],
+			observed=True,
 			sort=False
 		)
 		df.columns = df.columns.droplevel(0)
 		if sorting_score:
 			df.insert(0, 'global score', df.mean(axis=1).values)
-			df.sort_values(by='global score', kind='stable', ascending=False, inplace=True)
+			df.sort_values(by='global score', kind='stable', ascending=(self.mode=='regression'), inplace=True)
 			df.reset_index(inplace=True)
 			df.columns = pd.MultiIndex.from_tuples([
-				*list(itt.product(['model info'], ['experiment', 'classifier', 'params', 'global score'])),
+				*list(itt.product(['model info'], ['experiment', 'model', 'params', 'global score'])),
 				*list(itt.product([by], self.evaluation['dataset'].unique())),
 			])
 			df.index = df.index + 1
@@ -589,7 +633,7 @@ class ModelSelector():
 	
 	def reset_estimators(self, i=None):
 		if i is None:
-			self.classifiers = skl.base.clone(self.classifiers)
+			self.architectures = list(map(skl.base.clone, self.architectures))
 		else:
-			self.classifiers[i] = skl.base.clone(self.classifiers[i])
+			self.architectures[i] = skl.base.clone(self.architectures[i])
 

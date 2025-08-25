@@ -42,7 +42,8 @@ class BaseNetworkCollection():
 			func = lambda x: x.sample(n=number, replace=False, random_state=cls._seed)
 		else:
 			func = lambda x: x.sample(n=np.min([ len(x), number ]), random_state=cls._seed)
-		return samples.groupby('label', group_keys=False).apply(func)
+		grouped = samples.groupby('label', group_keys=False)
+		return grouped[samples.columns].apply(func, include_groups=False)
 	
 	@classmethod
 	def _progressbar(cls, files, msg:str):
