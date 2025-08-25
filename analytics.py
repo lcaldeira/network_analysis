@@ -468,7 +468,7 @@ class Report():
 class ModelSelector():
 	
 	def __init__(self, mode:str, architectures:list=[]):
-		assert mode in ['classification', 'regression'], TypeError("'mode' must be one of 'classification', 'regression")
+		assert mode in ['classification', 'regression'], ValueError("'mode' must be one of 'classification', 'regression")
 		self.mode = mode
 		self.architectures = architectures
 		self.evaluation = None
@@ -542,8 +542,8 @@ class ModelSelector():
 			})
 		return result
 	
-	def split_datasets(self, data, folds:int=1, reps:int=1, astype=iter):
-		KFClass = RepeatedStratifiedKFold if self.mode=='classification' else RepeatedKFold
+	def split_datasets(self, data, folds:int=1, reps:int=1, strat:bool=False, astype=iter):
+		KFClass = RepeatedStratifiedKFold if strat else RepeatedKFold
 		kfolds = KFClass(n_splits=folds, n_repeats=reps)
 		if isinstance(data, dict):
 			indices = { name: astype(kfolds.split(X, y)) for name, (X, y) in data.items() }
@@ -551,12 +551,13 @@ class ModelSelector():
 			indices = astype(kfolds.split(*data))
 		return indices
 	
-	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, indices:dict=None, 
-						exclude:list=[], verbose:bool=True):
+	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, strat:bool=False, 
+						indices:dict=None, exclude:list=[], keep:str='all', verbose:bool=True):
+		assert (keep in ['all', 'best', 'none']), ValueError("'keep' must be one of 'all', 'best', 'none'")
 		old_setting = np.seterr(divide='ignore', over='ignore')
 		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 		if indices is None:
-			indices = self.split_datasets(datasets, folds, reps)
+			indices = self.split_datasets(datasets, folds, reps, strat)
 		if verbose:
 			pbar = tqdm(total=len(self.architectures)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
@@ -571,6 +572,8 @@ class ModelSelector():
 					res = self.evaluate(i, test_data, self.fit(i, train_data))
 					res['repetition'] = (k//folds)+1
 					res['fold'] = (k%folds)+1
+					if keep = 'none':
+						res['model'] = None
 					for col in exclude:
 						del res[col]
 					results.append(res)
@@ -579,6 +582,8 @@ class ModelSelector():
 			df = pd.DataFrame(results)
 			df.insert(0, 'experiment', identifier)
 			df.insert(1, 'dataset', dsname)
+			if keep = 'best':
+				raise NotImplementedError
 			self.evaluation = (df if self.evaluation is None else pd.concat([self.evaluation, df], ignore_index=True))
 			for col in ['experiment', 'dataset', 'model name', 'model params']:
 				self.evaluation[col] = self.evaluation[col].astype('category')
