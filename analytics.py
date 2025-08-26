@@ -429,13 +429,13 @@ class Report():
 	def _split_(cls, pivot_table, partition):
 		strat = [ f'{x}/{y}' for x,y in pivot_table['Y'][['dataset','label']].values ]
 		# train/test split
-		if isinstance(partition, [int, float]):
+		if isinstance(partition, (int, float)):
 			idx_tr, idx_te = train_test_split(pivot_table.index, train_size=partition, stratify=strat)
 			pivot_table.loc[idx_tr, 'split'] = 'train'
 			pivot_table.loc[idx_te, 'split'] = 'test'
 			pivot_table.set_index('split', append=True, inplace=True)
 		# k-fold split
-		elif isinstance(partition, [list, tuple]):
+		elif isinstance(partition, (list, tuple)):
 			#idx_tr, idx_te = train_test_split(pivot_table.index, train_size=train_size, stratify=strat)
 			#pivot_table.loc[idx_tr, 'fold'] = 'train'
 			#pivot_table.loc[idx_te, 'fold'] = 'test'
@@ -468,12 +468,14 @@ class Report():
 class ModelSelector():
 	
 	def __init__(self, mode:str, architectures:list=[]):
-		assert mode in ['classification', 'regression'], ValueError("'mode' must be one of 'classification', 'regression")
+		assert mode in ['classification', 'regression'], ValueError("'mode' must be one of 'classification', 'regression'")
 		self.mode = mode
 		self.architectures = architectures
 		self.evaluation = None
 
 	def save(self, path):
+		if self.evaluation is None:
+			return
 		self.evaluation.to_csv(os.path.join(path, 'msel-eval.csv.xz'), compression='xz', index=False)
 		self.reset_estimators()
 		with open(os.path.join(path, "msel-archi.pkl"), 'wb') as f:
@@ -492,7 +494,7 @@ class ModelSelector():
 		with open(os.path.join(path, "msel-model.pkl"), 'rb') as f:
 			self.evaluation["model"] = pickle.load(f)
 	
-	@ignore_warnings(category=ConvergenceWarning)
+	@ignore_warnings(category=ConvergenceWarning())
 	def fit(self, i, data):
 		(X_tr, y_tr) = data
 		ti = time.time()
@@ -500,7 +502,7 @@ class ModelSelector():
 		tf = time.time()
 		return tf - ti
 	
-	def evaluate(self, i, data, fit_time=None):
+	def evaluate(self, i, data, fit_time:float=np.nan):
 		(X_te, y_te) = data
 		clf = self.architectures[i]
 		ti = time.time()
@@ -549,15 +551,21 @@ class ModelSelector():
 			indices = { name: astype(kfolds.split(X, y)) for name, (X, y) in data.items() }
 		elif isinstance(data, tuple):
 			indices = astype(kfolds.split(*data))
+		else:
+			raise TypeError()
 		return indices
 	
 	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, strat:bool=False, 
-						indices:dict=None, exclude:list=[], keep:str='all', verbose:bool=True):
+						indices:dict={}, exclude:list=[], keep:str='all', verbose:bool=True, callback=None):
 		assert (keep in ['all', 'best', 'none']), ValueError("'keep' must be one of 'all', 'best', 'none'")
 		old_setting = np.seterr(divide='ignore', over='ignore')
 		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-		if indices is None:
+		if len(indices) == 0:
 			indices = self.split_datasets(datasets, folds, reps, strat)
+		else:
+			for ds in datasets:
+				if (ds not in indices) or (len(indices[ds]) != folds*reps):
+					indices[ds] = self.split_datasets(datasets[ds], folds, reps, strat)
 		if verbose:
 			pbar = tqdm(total=len(self.architectures)*len(datasets)*reps, ncols=80, position=0, leave=True)
 		for dsname in datasets:
@@ -572,7 +580,7 @@ class ModelSelector():
 					res = self.evaluate(i, test_data, self.fit(i, train_data))
 					res['repetition'] = (k//folds)+1
 					res['fold'] = (k%folds)+1
-					if keep = 'none':
+					if keep == 'none':
 						res['model'] = None
 					for col in exclude:
 						del res[col]
@@ -582,8 +590,10 @@ class ModelSelector():
 			df = pd.DataFrame(results)
 			df.insert(0, 'experiment', identifier)
 			df.insert(1, 'dataset', dsname)
-			if keep = 'best':
+			if keep == 'best':
 				raise NotImplementedError
+			if callback is not None:
+				df = callback(df)
 			self.evaluation = (df if self.evaluation is None else pd.concat([self.evaluation, df], ignore_index=True))
 			for col in ['experiment', 'dataset', 'model name', 'model params']:
 				self.evaluation[col] = self.evaluation[col].astype('category')
