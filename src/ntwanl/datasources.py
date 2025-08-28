@@ -68,9 +68,9 @@ class BaseNetworkCollection():
 	
 
 #====================================
-class SyntheticNetworks(BaseNetworkCollection):
+class AicsSyntheticNetworks(BaseNetworkCollection):
 	
-	_collection = 'synthetic'
+	_collection = 'aics-synthetic'
 	_datasets = ['classic', 'scalefree', 'noise=10', 'noise=20', 'noise=30']
 	
 	def __init__(self):

@@ -471,20 +471,31 @@ class ModelSelector():
 		assert mode in ['classification', 'regression'], ValueError("'mode' must be one of 'classification', 'regression'")
 		self.mode = mode
 		self.architectures = architectures
-		self.evaluation = None
+		self.evaluation = pd.DataFrame()
 
-	def save(self, path):
-		if self.evaluation is None:
-			return
-		self.evaluation.to_csv(os.path.join(path, 'msel-eval.csv.xz'), compression='xz', index=False)
+	def save(self, path:str, extension:str="csv"):
+		models = self.evaluation["model"].values
+		self.evaluation["model"] = None
+		if extension == "csv":
+			self.evaluation.to_csv(os.path.join(path, 'msel-eval.csv.xz'), compression='xz', index=False)
+		elif extension == "parquet":
+			self.evaluation.to_parquet(os.path.join(path, 'msel-eval.parquet'), index=False)
+		else:
+			raise ValueError("Invalid extension, it should be 'csv' or 'parquet'")
 		self.reset_estimators()
 		with open(os.path.join(path, "msel-archi.pkl"), 'wb') as f:
 			pickle.dump(self.architectures, f)
 		with open(os.path.join(path, "msel-model.pkl"), 'wb') as f:
-			pickle.dump(self.evaluation["model"].values, f)
+			pickle.dump(models, f)
+		self.evaluation["model"] = models
 	
-	def load(self, path):
-		self.evaluation = pd.read_csv(os.path.join(path, 'msel-eval.csv.xz'))
+	def load(self, path:str, extension:str="csv"):
+		if extension == "csv":
+			self.evaluation = pd.read_csv(os.path.join(path, 'msel-eval.csv.xz'))
+		elif extension == "parquet":
+			self.evaluation = pd.read_parquet(os.path.join(path, 'msel-eval.parquet'))
+		else:
+			raise ValueError("Invalid extension, it should be 'csv' or 'parquet'")
 		self.evaluation.replace(np.nan, "", inplace=True)
 		for col in self.evaluation.columns[9:]:
 			if self.evaluation[col].dtype == 'object':
@@ -556,8 +567,8 @@ class ModelSelector():
 		return indices
 	
 	def run_experiment(self, identifier:str, datasets:dict, folds:int=1, reps:int=1, strat:bool=False, 
-						indices:dict={}, exclude:list=[], keep:str='all', verbose:bool=True, callback=None):
-		assert (keep in ['all', 'best', 'none']), ValueError("'keep' must be one of 'all', 'best', 'none'")
+						indices:dict={}, exclude:list=[], keep:dict={'policy':'all'}, verbose:bool=True, callback=None):
+		assert (keep['policy'] in ['all', 'best', 'none']), ValueError("keep['policy'] must be one of 'all', 'best', 'none'")
 		old_setting = np.seterr(divide='ignore', over='ignore')
 		to_num = lambda X: np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 		if len(indices) == 0:
@@ -580,7 +591,7 @@ class ModelSelector():
 					res = self.evaluate(i, test_data, self.fit(i, train_data))
 					res['repetition'] = (k//folds)+1
 					res['fold'] = (k%folds)+1
-					if keep == 'none':
+					if keep['policy'] == 'none':
 						res['model'] = None
 					for col in exclude:
 						del res[col]
@@ -590,11 +601,23 @@ class ModelSelector():
 			df = pd.DataFrame(results)
 			df.insert(0, 'experiment', identifier)
 			df.insert(1, 'dataset', dsname)
-			if keep == 'best':
-				raise NotImplementedError
+			if keep['policy'] == 'best':
+				crit = keep['criterion']
+				agg = 'max' if self.mode=='classification' else 'min'
+				if 'scope' not in keep or keep['scope']=='dataset':
+					gcols = ["experiment", "dataset"]
+				elif keep['scope']=='repetition':
+					gcols = ["experiment", "dataset", "repetition"]
+				elif keep['scope']=='fold':
+					gcols = ["experiment", "dataset", "repetition", "fold"]
+				else:
+					raise ValueError("the value of `keep['scope']` must be one of " + 
+						"'dataset', 'repetition', 'fold' (when informed)")
+				is_best = (df.groupby(gcols, observed=True)[crit].transform(agg) == df[crit])
+				df.loc[~is_best, "model"] = None
 			if callback is not None:
 				df = callback(df)
-			self.evaluation = (df if self.evaluation is None else pd.concat([self.evaluation, df], ignore_index=True))
+			self.evaluation = pd.concat([self.evaluation, df], ignore_index=True)
 			for col in ['experiment', 'dataset', 'model name', 'model params']:
 				self.evaluation[col] = self.evaluation[col].astype('category')
 		np.seterr(**old_setting)
@@ -628,7 +651,7 @@ class ModelSelector():
 		)
 		df.columns = df.columns.droplevel(0)
 		if sorting_score:
-			df.insert(0, 'global score', df.mean(axis=1).values)
+			df.insert(0, 'global score', df.mean(axis=1).values.tolist())
 			df.sort_values(by='global score', kind='stable', ascending=(self.mode=='regression'), inplace=True)
 			df.reset_index(inplace=True)
 			df.columns = pd.MultiIndex.from_tuples([

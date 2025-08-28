@@ -4,13 +4,15 @@
 #	https://string-db.org/
 
 
-echo -e 'Creating directories'
+echo -e '\nCreate work directories\n'
 
-mkdir cache
-mkdir data
-cd data
+CURR_DIR=$( dirname -- "$( readlink -f -- "$0"; )"; )
 
-
+echo $PWD
+mkdir $PWD/cache
+mkdir $PWD/data
+cp $CURR_DIR/data/*.zip $PWD/data/
+cd $PWD/data/
 
 #==========================================================
 echo -e '\nSetup of "Synthetic Datasets"\n'
@@ -96,6 +98,7 @@ for FOLDER in synthetic/*/*; do
 done
 
 mv synthetic/model synthetic/classic
+mv synthetic aics-synthetic
 rm *.zip
 
 

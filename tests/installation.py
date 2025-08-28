@@ -1,0 +1,3 @@
+import ntwanl
+
+dir(ntwanl)

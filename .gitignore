@@ -1,5 +1,7 @@
 __pycache__/
+build/
 cache/
 data/
 .ipynb_checkpoints/
+*egg-info/
 playground*.ipynb

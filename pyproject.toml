@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ntwanl"
+version = "0.1.0"
+description = "Basic tools to analyze networks."
+authors = [
+  {name = "Lucas Caldeira", email = "l.caldeira@usp.br"}
+]
+license = {text = "GNU GENERAL PUBLIC LICENSE v3"}
+dependencies = [
+	"igraph>=0.10.6",
+	"matplotlib>=3.7.5",
+	"matplotlib-inline>=0.1.7",
+	"networkx>=3.0",
+	"numpy>=1.24.2",
+	"pandas>=2.0.3",
+	"scikit-learn>=1.2.2",
+	"seaborn>=0.13.2",
+	"tqdm>=4.67.1",
+	"fastparquet>=0.8.1"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+ntwanl = ["*.py*"]
+
+
